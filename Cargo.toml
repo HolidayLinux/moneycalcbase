@@ -1,0 +1,11 @@
+[package]
+name = "moneycalc"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rusqlite = {version="0.37.0", features=["serde_json","chrono"]}
+rusqlite_migration = "2.3.0"
+chrono = {version="0.4.42", features=["serde"]}
+serde = {version="1.0", features=["derive"]}
+tokio = {version="1.45", features=["full"]}
