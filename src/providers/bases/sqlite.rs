@@ -34,21 +34,19 @@ impl SqliteProvider {
 }
 
 impl UserProvider for SqliteProvider {
-    fn add_user(&self, user: &User) -> Result<(), Error> {
-        match self.connection.execute(
+    fn add_user(&self, user: &User) -> Result<(), Box<dyn std::error::Error>> {
+        self.connection.execute(
             "insert into Users(Name, Number, CreationDate) values (?1,?2, ?3);",
             [
                 user.name.as_str(),
                 user.number.as_str(),
                 user.creation_date.to_string().as_str(),
             ],
-        ) {
-            Ok(res) => return Ok(()),
-            Err(e) => return Err(e),
-        }
+        )?;
+        Ok(())
     }
 
-    fn get_users(&self) -> Result<Vec<User>, Error> {
+    fn get_users(&self) -> Result<Vec<User>, Box<dyn std::error::Error>> {
         let mut values = self.connection.prepare("select * from Users;")?;
         let rows = values.query_map([], |row| {
             Ok(User::new(
@@ -67,22 +65,23 @@ impl UserProvider for SqliteProvider {
         Ok(users)
     }
 
-    fn get_user_by_number(&self, number: &str) -> Result<User, Error> {
-        self.connection
-            .query_one("Select * from users where Number = ?1", [number], |row| {
+    fn get_user_by_number(&self, number: &str) -> Result<User, Box<dyn std::error::Error>> {
+        let user = self.connection.query_one(
+            "Select * from users where Number = ?1",
+            [number],
+            |row| {
                 let user = User::new(row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?);
                 Ok(user)
-            })
+            },
+        )?;
+
+        Ok(user)
     }
 
-    fn delete_user_by_id(&self, id: i32) -> Result<(), Error> {
-        match self
-            .connection
-            .execute("Delete from Users where Id = ?1", [id])
-        {
-            Ok(_) => Ok(()),
-            Err(err) => Err(err),
-        }
+    fn delete_user_by_id(&self, id: i32) -> Result<(), Box<dyn std::error::Error>> {
+        self.connection
+            .execute("Delete from Users where Id = ?1", [id])?;
+        Ok(())
     }
 }
 
