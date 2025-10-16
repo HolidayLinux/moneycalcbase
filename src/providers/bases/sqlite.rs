@@ -91,7 +91,7 @@ mod tests {
         let config = Configuration {
             connection_string: "./testbases/testbase_user.db3".to_owned(),
         };
-        let sqlite_provider = SqliteProvider::new(&config, false).unwrap();
+        let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
         let user = User::new(
             1,
             String::from_str("peter").unwrap(),
@@ -105,7 +105,7 @@ mod tests {
         let config = Configuration {
             connection_string: "./testbases/testbase_user.db3".to_owned(),
         };
-        let sqlite_provider = SqliteProvider::new(&config, false).unwrap();
+        let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
         let users = sqlite_provider.get_users().unwrap();
         assert_eq!(users.len() > 0, true);
     }
