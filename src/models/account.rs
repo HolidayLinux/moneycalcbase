@@ -1,10 +1,12 @@
 use chrono::NaiveDate;
+use serde::{Deserialize, Serialize};
 
 /// Account type.
 /// id for identification in base.
 /// user_id for id of user.
 /// name of account.
 /// money is money count.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Account {
     pub id: i32,
     pub user_id: i32,

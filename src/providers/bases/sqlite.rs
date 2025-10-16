@@ -1,9 +1,17 @@
 use crate::{
     config::Configuration,
-    models::{account::Account, user::User},
-    providers::{AccountProvider, UserProvider, bases::migrations::sqlitemigrations::MIGRATIONS},
+    models::{
+        account::Account,
+        moneytransaction::{MoneyTransaction, PaymentType},
+        user::User,
+    },
+    providers::{
+        AccountProvider, TransactionWorker, UserProvider,
+        bases::migrations::sqlitemigrations::MIGRATIONS,
+    },
 };
 use rusqlite::{Connection, Error};
+use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct SqliteProvider {
@@ -30,6 +38,34 @@ impl SqliteProvider {
                 connection: connect,
             })
         }
+    }
+}
+
+impl TransactionWorker for SqliteProvider {
+    fn execute_transaction(
+        &self,
+        transaction: &MoneyTransaction,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let amount = match transaction.payment_type {
+            PaymentType::Income => transaction.amount,
+            PaymentType::Outcome => -transaction.amount,
+            _ => 0.0,
+        };
+        self.change_money(&transaction.account, amount)?;
+
+        self.connection.execute(
+            "INSERT INTO Transactions VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            [
+                Uuid::new_v4().to_string(),
+                transaction.amount.to_string(),
+                transaction.description.clone(),
+                transaction.account.user_id.to_string(),
+                transaction.account.id.to_string(),
+                (transaction.payment_type.clone() as u32).to_string(),
+                transaction.create_date.to_string(),
+            ],
+        )?;
+        Ok(())
     }
 }
 
@@ -166,8 +202,14 @@ mod tests {
 
     use crate::{
         config::Configuration,
-        models::{account::Account, user::User},
-        providers::{AccountProvider, UserProvider, bases::sqlite::SqliteProvider},
+        models::{
+            account::Account,
+            moneytransaction::{MoneyTransaction, PaymentType},
+            user::User,
+        },
+        providers::{
+            AccountProvider, TransactionWorker, UserProvider, bases::sqlite::SqliteProvider,
+        },
     };
 
     #[tokio::test]
@@ -298,30 +340,56 @@ mod tests {
 
     #[test]
     fn account_lifecircle_test() {
-        let config = Configuration::memory_base();
-        let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
-
         let user = User::new(
             1,
             String::from_str("scam").unwrap(),
             uuid::Uuid::new_v4().to_string(),
             String::from_str("2025-10-10").unwrap(),
         );
-        sqlite_provider.add_user(&user).unwrap();
-
+        let sqlite_provider = configure_sql_with_user(&user);
         let account = Account::new(1, "Test".to_owned(), 50000.0);
         sqlite_provider.add_account(&account).unwrap();
-
         let account = sqlite_provider.search_account_by_user(&user).unwrap();
-
-        assert_eq!(account.name, "Test");
-
         sqlite_provider.change_money(&account, 100000.0).unwrap();
-
         let account = sqlite_provider.search_account_by_user(&user).unwrap();
         assert_eq!(account.money, 150000.0);
-
+        assert_eq!(account.name, "Test");
         sqlite_provider.delete_account(&account).unwrap();
+    }
+
+    #[test]
+    fn transaction_execute_test() {
+        let user = User::new(
+            1,
+            String::from_str("scam").unwrap(),
+            uuid::Uuid::new_v4().to_string(),
+            String::from_str("2025-10-10").unwrap(),
+        );
+        let sqlite_provider = configure_sql_with_user(&user);
+        let account = Account::new(1, "Test".to_owned(), 50000.0);
+        sqlite_provider.add_account(&account).unwrap();
+        let account = sqlite_provider.search_account_by_user(&user).unwrap();
+        sqlite_provider
+            .execute_transaction(&MoneyTransaction {
+                description: "Test transcation".to_string(),
+                amount: 200000.0,
+                user: user.clone(),
+                account: account.clone(),
+                payment_type: PaymentType::Income,
+                id: "".to_string(),
+                create_date: chrono::Utc::now().naive_utc(),
+            })
+            .unwrap();
+        let account = sqlite_provider.search_account_by_user(&user).unwrap();
+        assert_eq!(account.money, 250000.0);
+    }
+
+    fn configure_sql_with_user(user: &User) -> SqliteProvider {
+        let config = Configuration::memory_base();
+        let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
+        sqlite_provider.add_user(user).unwrap();
+
+        sqlite_provider
     }
 
     async fn check_exist(path: &str) -> bool {

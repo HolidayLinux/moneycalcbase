@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-uuid = {version = "1.18.1", features=["v4"]}
+uuid = {version = "1.18.1", features=["v4", "serde"]}
 rusqlite = {version="0.37.0", features=["serde_json","chrono"]}
 rusqlite_migration = "2.3.0"
 chrono = {version="0.4.42", features=["serde"]}
