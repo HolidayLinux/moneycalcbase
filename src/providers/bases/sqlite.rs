@@ -1,7 +1,7 @@
 use crate::{
     config::Configuration,
-    models::user::User,
-    providers::{UserProvider, bases::migrations::sqlitemigrations::MIGRATIONS},
+    models::{account::Account, user::User},
+    providers::{AccountProvider, UserProvider, bases::migrations::sqlitemigrations::MIGRATIONS},
 };
 use rusqlite::{Connection, Error};
 
@@ -85,6 +85,80 @@ impl UserProvider for SqliteProvider {
     }
 }
 
+impl AccountProvider for SqliteProvider {
+    fn add_account(&self, account: &Account) -> Result<(), Box<dyn std::error::Error>> {
+        self.connection.execute(
+            "Insert into Accounts(Name, UserId, MoneyCount, CreationDate) Values (?1,?2,?3,?4);",
+            [
+                account.name.clone(),
+                account.user_id.to_string(),
+                account.money.to_string(),
+                account.creation_date.to_string(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn delete_account(&self, account: &Account) -> Result<(), Box<dyn std::error::Error>> {
+        self.connection
+            .execute("Delete from Accounts where Id = ?1", [account.id])?;
+        Ok(())
+    }
+
+    fn change_money(
+        &self,
+        account: &Account,
+        payment_count: f32,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.connection.execute(
+            "Update Accounts set MoneyCount = ?2 where Id = ?1",
+            [
+                account.id.to_string(),
+                (account.money + payment_count).to_string(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn get_accounts(&self) -> Result<Vec<Account>, Box<dyn std::error::Error>> {
+        let mut values = self.connection.prepare("select * from Accounts;")?;
+        let rows = values.query_map([], |row| {
+            Ok(Account::from_exist(
+                row.get(0)?,
+                row.get(2)?,
+                row.get(1)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })?;
+
+        let mut accounts: Vec<Account> = vec![];
+        rows.into_iter().for_each(|user| match user {
+            Ok(res) => accounts.push(res),
+            Err(_) => (),
+        });
+        Ok(accounts)
+    }
+
+    fn search_account_by_user(&self, user: &User) -> Result<Account, Box<dyn std::error::Error>> {
+        let account = self.connection.query_one(
+            "Select * from Accounts where UserId = ?1",
+            [user.id],
+            |row| {
+                Ok(Account::from_exist(
+                    row.get(0)?,
+                    row.get(2)?,
+                    row.get(1)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )?;
+
+        Ok(account)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
@@ -92,8 +166,8 @@ mod tests {
 
     use crate::{
         config::Configuration,
-        models::user::User,
-        providers::{UserProvider, bases::sqlite::SqliteProvider},
+        models::{account::Account, user::User},
+        providers::{AccountProvider, UserProvider, bases::sqlite::SqliteProvider},
     };
 
     #[tokio::test]
@@ -220,6 +294,34 @@ mod tests {
         assert!(users.len() == 0);
 
         std::fs::remove_file("./testbases/testbase_user_delete.db3").unwrap();
+    }
+
+    #[test]
+    fn account_lifecircle_test() {
+        let config = Configuration::memory_base();
+        let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
+
+        let user = User::new(
+            1,
+            String::from_str("scam").unwrap(),
+            uuid::Uuid::new_v4().to_string(),
+            String::from_str("2025-10-10").unwrap(),
+        );
+        sqlite_provider.add_user(&user).unwrap();
+
+        let account = Account::new(1, "Test".to_owned(), 50000.0);
+        sqlite_provider.add_account(&account).unwrap();
+
+        let account = sqlite_provider.search_account_by_user(&user).unwrap();
+
+        assert_eq!(account.name, "Test");
+
+        sqlite_provider.change_money(&account, 100000.0).unwrap();
+
+        let account = sqlite_provider.search_account_by_user(&user).unwrap();
+        assert_eq!(account.money, 150000.0);
+
+        sqlite_provider.delete_account(&account).unwrap();
     }
 
     async fn check_exist(path: &str) -> bool {
