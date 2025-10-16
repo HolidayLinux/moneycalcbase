@@ -93,7 +93,7 @@ mod tests {
         };
         let sqlite_provider = SqliteProvider::new(&config, false).unwrap();
         let user = User::new(
-            String::from_str("1").unwrap(),
+            1,
             String::from_str("peter").unwrap(),
             String::from_str("2025-09-30").unwrap(),
         );

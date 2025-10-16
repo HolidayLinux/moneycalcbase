@@ -10,19 +10,19 @@ name , user name.
 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
-    pub id: String,
+    pub id: i32,
     pub name: String,
     pub creation_date: NaiveDate,
 }
 
 impl User {
-    pub fn new(id: String, name: String, create_date: String) -> Self {
+    pub fn new(id: i32, name: String, create_date: String) -> Self {
         let date = match NaiveDate::from_str(create_date.as_str()) {
             Ok(res) => res,
             Err(_) => chrono::Utc::now().naive_utc().date(),
         };
         Self {
-            id: id.to_owned(),
+            id: id,
             name: name.to_owned(),
             creation_date: date,
         }
@@ -36,9 +36,9 @@ mod tests {
     #[test]
     fn create_user_test() {
         let date: String = "1999-01-01".to_owned();
-        let id: String = "1".to_owned();
+        let id = 1;
         let name: String = "TestUser".to_owned();
-        let user = User::new(id.clone(), name.clone(), date.clone());
+        let user = User::new(id, name.clone(), date.clone());
         assert_eq!(user.creation_date.to_string(), date);
         assert_eq!(user.id, id);
         assert_eq!(user.name, name);
@@ -46,7 +46,7 @@ mod tests {
 
     #[test]
     fn create_user_failed_parse_date() {
-        let user = User::new("1".to_owned(), "1".to_owned(), "20a5-01-01".to_owned());
+        let user = User::new(1, "1".to_owned(), "20a5-01-01".to_owned());
         assert_eq!(
             user.creation_date.to_string(),
             chrono::Utc::now().date_naive().to_string()
