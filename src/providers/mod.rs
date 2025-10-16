@@ -10,4 +10,8 @@ trait UserProvider {
     fn add_user(&self, user: &User) -> Result<(), Error>;
 
     fn get_users(&self) -> Result<Vec<User>, Error>;
+
+    fn get_user_by_number(&self, number: &str) -> Result<User, Error>;
+
+    fn delete_user_by_id(&self, id: i32) -> Result<(), Error>;
 }
