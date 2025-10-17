@@ -53,8 +53,9 @@ impl TransactionWorker for SqliteProvider {
         };
         self.change_money(&transaction.account, amount)?;
 
+        let sql = "INSERT INTO Transactions VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
         self.connection.execute(
-            "INSERT INTO Transactions VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            sql,
             [
                 Uuid::new_v4().to_string(),
                 transaction.amount.to_string(),
@@ -62,6 +63,7 @@ impl TransactionWorker for SqliteProvider {
                 transaction.account.user_id.to_string(),
                 transaction.account.id.to_string(),
                 (transaction.payment_type.clone() as u32).to_string(),
+                transaction.payment_target.to_string(),
                 transaction.create_date.to_string(),
             ],
         )?;
@@ -71,8 +73,9 @@ impl TransactionWorker for SqliteProvider {
 
 impl UserProvider for SqliteProvider {
     fn add_user(&self, user: &User) -> Result<(), Box<dyn std::error::Error>> {
+        let sql = "insert into Users(Name, Number, CreationDate) values (?1,?2, ?3);";
         self.connection.execute(
-            "insert into Users(Name, Number, CreationDate) values (?1,?2, ?3);",
+            sql,
             [
                 user.name.as_str(),
                 user.number.as_str(),
@@ -123,8 +126,10 @@ impl UserProvider for SqliteProvider {
 
 impl AccountProvider for SqliteProvider {
     fn add_account(&self, account: &Account) -> Result<(), Box<dyn std::error::Error>> {
+        let sql =
+            "Insert into Accounts(Name, UserId, MoneyCount, CreationDate) Values (?1,?2,?3,?4);";
         self.connection.execute(
-            "Insert into Accounts(Name, UserId, MoneyCount, CreationDate) Values (?1,?2,?3,?4);",
+            sql,
             [
                 account.name.clone(),
                 account.user_id.to_string(),
@@ -376,6 +381,7 @@ mod tests {
                 user: user.clone(),
                 account: account.clone(),
                 payment_type: PaymentType::Income,
+                payment_target: "Test".to_string(),
                 id: "".to_string(),
                 create_date: chrono::Utc::now().naive_utc(),
             })

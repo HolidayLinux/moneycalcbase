@@ -21,6 +21,7 @@ const MIGRATIONS_COLLECTION: &[M<'_>] = &[
     M::up(
         "Create TABLE IF NOT EXISTS Transactions (Id Text Primary key, Amount decimal, Description Text, UserId INTEGER, AccountId INTEGER, PaymentType Integer, CreationDate Text, FOREIGN KEY(UserId) REFERENCES Users(Id), FOREIGN KEY(AccountId) REFERENCES Accounts(Id));",
     ),
+    M::up("Alter table Transactions add column PaymentTarget TEXT;"),
 ];
 
 pub const MIGRATIONS: Migrations = Migrations::from_slice(MIGRATIONS_COLLECTION);

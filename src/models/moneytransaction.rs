@@ -1,7 +1,6 @@
 use chrono::NaiveDateTime;
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use crate::models::{account::Account, user::User};
 /*
@@ -26,5 +25,6 @@ pub struct MoneyTransaction {
     pub user: User,
     pub account: Account,
     pub payment_type: PaymentType,
+    pub payment_target: String,
     pub create_date: NaiveDateTime,
 }
