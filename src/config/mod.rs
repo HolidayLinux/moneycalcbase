@@ -1,3 +1,4 @@
+#[derive(Clone, Debug)]
 pub struct Configuration {
     pub connection_string: String,
     pub memory_base: bool,

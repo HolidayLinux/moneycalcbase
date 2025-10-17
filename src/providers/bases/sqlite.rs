@@ -26,6 +26,23 @@ impl ToSql for PaymentType {
 #[derive(Debug)]
 pub struct SqliteProvider {
     connection: Connection,
+    config: Configuration,
+}
+
+impl Clone for SqliteProvider {
+    fn clone(&self) -> Self {
+        let connect: Connection;
+        if self.config.memory_base {
+            connect = Connection::open_in_memory().unwrap();
+        } else {
+            connect = Connection::open(self.config.connection_string.as_str()).unwrap();
+        }
+
+        Self {
+            connection: connect,
+            config: self.config.clone(),
+        }
+    }
 }
 
 impl SqliteProvider {
@@ -42,10 +59,14 @@ impl SqliteProvider {
 
             MIGRATIONS.to_latest(&mut mutcon).unwrap();
 
-            Ok(Self { connection: mutcon })
+            Ok(Self {
+                connection: mutcon,
+                config: config.clone(),
+            })
         } else {
             Ok(Self {
                 connection: connect,
+                config: config.clone(),
             })
         }
     }
