@@ -1,10 +1,6 @@
 use std::error;
 
-use crate::models::{
-    account::Account,
-    moneytransaction::{MoneyTransaction, PaymentType},
-    user::User,
-};
+use crate::models::{account::Account, moneytransaction::MoneyTransaction, user::User};
 
 pub mod bases;
 

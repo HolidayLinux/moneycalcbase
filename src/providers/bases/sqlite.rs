@@ -10,9 +10,19 @@ use crate::{
         bases::migrations::sqlitemigrations::MIGRATIONS,
     },
 };
-use rusqlite::{Connection, Error};
+use rusqlite::{Connection, Error, ToSql, params, types::ToSqlOutput};
 use uuid::Uuid;
 
+impl ToSql for PaymentType {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        let val = match self {
+            PaymentType::Income => 1,
+            PaymentType::Outcome => 2,
+            _ => 0,
+        };
+        Ok(ToSqlOutput::from(val))
+    }
+}
 #[derive(Debug)]
 pub struct SqliteProvider {
     connection: Connection,
@@ -54,19 +64,17 @@ impl TransactionWorker for SqliteProvider {
         self.change_money(&transaction.account, amount)?;
 
         let sql = "INSERT INTO Transactions VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
-        self.connection.execute(
-            sql,
-            [
-                Uuid::new_v4().to_string(),
-                transaction.amount.to_string(),
-                transaction.description.clone(),
-                transaction.account.user_id.to_string(),
-                transaction.account.id.to_string(),
-                (transaction.payment_type.clone() as u32).to_string(),
-                transaction.payment_target.to_string(),
-                transaction.create_date.to_string(),
-            ],
-        )?;
+        let params = params![
+            Uuid::new_v4().to_string(),
+            transaction.amount,
+            transaction.description.clone(),
+            transaction.account.user_id,
+            transaction.account.id,
+            transaction.payment_type,
+            transaction.payment_target.clone(),
+            transaction.create_date.clone(),
+        ];
+        self.connection.execute(sql, params)?;
         Ok(())
     }
 }
@@ -76,11 +84,7 @@ impl UserProvider for SqliteProvider {
         let sql = "insert into Users(Name, Number, CreationDate) values (?1,?2, ?3);";
         self.connection.execute(
             sql,
-            [
-                user.name.as_str(),
-                user.number.as_str(),
-                user.creation_date.to_string().as_str(),
-            ],
+            params![user.name.clone(), user.number.clone(), user.creation_date,],
         )?;
         Ok(())
     }
@@ -130,11 +134,11 @@ impl AccountProvider for SqliteProvider {
             "Insert into Accounts(Name, UserId, MoneyCount, CreationDate) Values (?1,?2,?3,?4);";
         self.connection.execute(
             sql,
-            [
+            params![
                 account.name.clone(),
-                account.user_id.to_string(),
-                account.money.to_string(),
-                account.creation_date.to_string(),
+                account.user_id,
+                account.money,
+                account.creation_date,
             ],
         )?;
         Ok(())
@@ -153,10 +157,7 @@ impl AccountProvider for SqliteProvider {
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.connection.execute(
             "Update Accounts set MoneyCount = ?2 where Id = ?1",
-            [
-                account.id.to_string(),
-                (account.money + payment_count).to_string(),
-            ],
+            params![account.id, (account.money + payment_count)],
         )?;
         Ok(())
     }

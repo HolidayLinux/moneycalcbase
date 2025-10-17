@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /*
 Struct for user entry.
-Id, indentifier.
+Id, identifier.
 name , user name.
 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
