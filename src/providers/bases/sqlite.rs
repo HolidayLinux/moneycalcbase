@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use crate::{
     commands::{
         accounts::addaccountcommand::AddAccountCommand, users::addusercommand::AddUserCommand,
@@ -13,6 +15,7 @@ use crate::{
         bases::migrations::sqlitemigrations::MIGRATIONS,
     },
 };
+use async_trait::async_trait;
 use rusqlite::{Connection, Error, ToSql, params, types::ToSqlOutput};
 use uuid::Uuid;
 
@@ -28,7 +31,7 @@ impl ToSql for PaymentType {
 }
 #[derive(Debug)]
 pub struct SqliteProvider {
-    connection: Connection,
+    connection: Arc<Mutex<Connection>>,
     config: Configuration,
 }
 
@@ -42,7 +45,7 @@ impl Clone for SqliteProvider {
         }
 
         Self {
-            connection: connect,
+            connection: Arc::new(Mutex::new(connect)),
             config: self.config.clone(),
         }
     }
@@ -63,20 +66,30 @@ impl SqliteProvider {
             MIGRATIONS.to_latest(&mut mutcon).unwrap();
 
             Ok(Self {
-                connection: mutcon,
+                connection: Arc::new(Mutex::new(mutcon)),
                 config: config.clone(),
             })
         } else {
             Ok(Self {
-                connection: connect,
+                connection: Arc::new(Mutex::new(connect)),
                 config: config.clone(),
             })
         }
     }
+
+    fn execute_query<F, T>(&self, query: F) -> Result<T, Box<dyn std::error::Error>>
+    where
+        F: FnOnce(&Connection) -> Result<T, Box<dyn std::error::Error>>,
+    {
+        let connection = self.connection.lock().map_err(|e| e.to_string())?;
+
+        query(&connection)
+    }
 }
 
+#[async_trait]
 impl TransactionWorker for SqliteProvider {
-    fn execute_transaction(
+    async fn execute_transaction(
         &self,
         transaction: &MoneyTransaction,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -85,142 +98,134 @@ impl TransactionWorker for SqliteProvider {
             PaymentType::Outcome => -transaction.amount,
             _ => 0.0,
         };
-        self.change_money(&transaction.account, amount)?;
+        self.change_money(&transaction.account, amount).await?;
 
-        let sql = "INSERT INTO Transactions VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
-        let params = params![
-            Uuid::new_v4().to_string(),
-            transaction.amount,
-            transaction.description.clone(),
-            transaction.account.user_id,
-            transaction.account.id,
-            transaction.payment_type,
-            transaction.payment_target.clone(),
-            transaction.create_date.clone(),
-        ];
-        self.connection.execute(sql, params)?;
-        Ok(())
+        self.execute_query(|connection| {
+            let sql = "INSERT INTO Transactions VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
+            let params = params![
+                Uuid::new_v4().to_string(),
+                transaction.amount,
+                transaction.description.clone(),
+                transaction.account.user_id,
+                transaction.account.id,
+                transaction.payment_type,
+                transaction.payment_target.clone(),
+                transaction.create_date.clone(),
+            ];
+            connection.execute(sql, params)?;
+            Ok(())
+        })
     }
 }
 
+#[async_trait]
 impl UserProvider for SqliteProvider {
-    fn add_user(
+    async fn add_user(
         &self,
         add_user_command: &AddUserCommand,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let sql = "insert into Users(Name, Number, CreationDate) values (?1,?2, ?3);";
-        self.connection.execute(
-            sql,
-            params![
-                add_user_command.user_name,
-                add_user_command.user_number,
-                chrono::Utc::now().naive_utc().date(),
-            ],
-        )?;
-        Ok(())
+        self.execute_query(|connection| {
+            let sql = "insert into Users(Name, Number, CreationDate) values (?1,?2, ?3);";
+            connection.execute(
+                sql,
+                params![
+                    add_user_command.user_name,
+                    add_user_command.user_number,
+                    chrono::Utc::now().naive_utc().date(),
+                ],
+            )?;
+            Ok(())
+        })
     }
 
-    fn get_users(&self) -> Result<Vec<User>, Box<dyn std::error::Error>> {
-        let mut values = self.connection.prepare("select * from Users;")?;
-        let rows = values.query_map([], |row| {
-            Ok(User::new(
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-            ))
-        })?;
+    async fn get_users(&self) -> Result<Vec<User>, Box<dyn std::error::Error>> {
+        self.execute_query(|connection| {
+            let mut values = connection.prepare("select * from Users;")?;
+            let rows = values.query_map([], |row| {
+                Ok(User::new(
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                ))
+            })?;
 
-        let mut users: Vec<User> = vec![];
-        rows.into_iter().for_each(|user| match user {
-            Ok(res) => users.push(res),
-            Err(_) => (),
-        });
-        Ok(users)
+            let mut users: Vec<User> = vec![];
+            rows.into_iter().for_each(|user| match user {
+                Ok(res) => users.push(res),
+                Err(_) => (),
+            });
+            Ok(users)
+        })
     }
 
-    fn get_user_by_number(&self, number: &str) -> Result<User, Box<dyn std::error::Error>> {
-        let user = self.connection.query_one(
-            "Select * from users where Number = ?1",
-            [number],
-            |row| {
-                let user = User::new(row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?);
-                Ok(user)
-            },
-        )?;
+    async fn get_user_by_number(&self, number: &str) -> Result<User, Box<dyn std::error::Error>> {
+        self.execute_query(|connection| {
+            let user =
+                connection.query_one("Select * from users where Number = ?1", [number], |row| {
+                    let user = User::new(row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?);
+                    Ok(user)
+                })?;
 
-        Ok(user)
+            Ok(user)
+        })
     }
 
-    fn delete_user_by_id(&self, id: i32) -> Result<(), Box<dyn std::error::Error>> {
-        self.connection
-            .execute("Delete from Users where Id = ?1", [id])?;
-        Ok(())
+    async fn delete_user_by_id(&self, id: i32) -> Result<(), Box<dyn std::error::Error>> {
+        self.execute_query(|connection| {
+            connection.execute("Delete from Users where Id = ?1", [id])?;
+            Ok(())
+        })
     }
 }
 
+#[async_trait]
 impl AccountProvider for SqliteProvider {
-    fn add_account(
+    async fn add_account(
         &self,
         add_command: &AddAccountCommand,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let sql =
-            "Insert into Accounts(Name, UserId, MoneyCount, CreationDate) Values (?1,?2,?3,?4);";
-        self.connection.execute(
-            sql,
-            params![
-                add_command.account_name,
-                add_command.user_id,
-                add_command.initial_balance,
-                chrono::Utc::now().naive_utc().date().to_string(),
-            ],
-        )?;
-        Ok(())
+        self.execute_query(|connection| {
+            let sql =
+                "Insert into Accounts(Name, UserId, MoneyCount, CreationDate) Values (?1,?2,?3,?4);";
+            connection.execute(
+                sql,
+                params![
+                    add_command.account_name,
+                    add_command.user_id,
+                    add_command.initial_balance,
+                    chrono::Utc::now().naive_utc().date().to_string(),
+                ],
+            )?;
+            Ok(())
+        })
     }
 
-    fn delete_account(&self, account: &Account) -> Result<(), Box<dyn std::error::Error>> {
-        self.connection
-            .execute("Delete from Accounts where Id = ?1", [account.id])?;
-        Ok(())
+    async fn delete_account(&self, account: &Account) -> Result<(), Box<dyn std::error::Error>> {
+        self.execute_query(|connection| {
+            connection.execute("Delete from Accounts where Id = ?1", [account.id])?;
+            Ok(())
+        })
     }
 
-    fn change_money(
+    async fn change_money(
         &self,
         account: &Account,
         payment_count: f32,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.connection.execute(
-            "Update Accounts set MoneyCount = ?2 where Id = ?1",
-            params![account.id, (account.money + payment_count)],
-        )?;
-        Ok(())
+        self.execute_query(|connection| {
+            connection.execute(
+                "Update Accounts set MoneyCount = ?2 where Id = ?1",
+                params![account.id, (account.money + payment_count)],
+            )?;
+            Ok(())
+        })
     }
 
-    fn get_accounts(&self) -> Result<Vec<Account>, Box<dyn std::error::Error>> {
-        let mut values = self.connection.prepare("select * from Accounts;")?;
-        let rows = values.query_map([], |row| {
-            Ok(Account::from_exist(
-                row.get(0)?,
-                row.get(2)?,
-                row.get(1)?,
-                row.get(3)?,
-                row.get(4)?,
-            ))
-        })?;
-
-        let mut accounts: Vec<Account> = vec![];
-        rows.into_iter().for_each(|user| match user {
-            Ok(res) => accounts.push(res),
-            Err(_) => (),
-        });
-        Ok(accounts)
-    }
-
-    fn search_account_by_user(&self, user: &User) -> Result<Account, Box<dyn std::error::Error>> {
-        let account = self.connection.query_one(
-            "Select * from Accounts where UserId = ?1",
-            [user.id],
-            |row| {
+    async fn get_accounts(&self) -> Result<Vec<Account>, Box<dyn std::error::Error>> {
+        self.execute_query(|connection| {
+            let mut values = connection.prepare("select * from Accounts;")?;
+            let rows = values.query_map([], |row| {
                 Ok(Account::from_exist(
                     row.get(0)?,
                     row.get(2)?,
@@ -228,16 +233,47 @@ impl AccountProvider for SqliteProvider {
                     row.get(3)?,
                     row.get(4)?,
                 ))
-            },
-        )?;
+            })?;
 
-        Ok(account)
+            let mut accounts: Vec<Account> = vec![];
+            rows.into_iter().for_each(|user| match user {
+                Ok(res) => accounts.push(res),
+                Err(_) => (),
+            });
+            Ok(accounts)
+        })
+    }
+
+    async fn search_account_by_user(
+        &self,
+        user: &User,
+    ) -> Result<Account, Box<dyn std::error::Error>> {
+        self.execute_query(|connection| {
+            let account = connection.query_one(
+                "Select * from Accounts where UserId = ?1",
+                [user.id],
+                |row| {
+                    Ok(Account::from_exist(
+                        row.get(0)?,
+                        row.get(2)?,
+                        row.get(1)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )?;
+
+            Ok(account)
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use std::{
+        str::FromStr,
+        sync::{Arc, Mutex},
+    };
     use tokio::fs;
 
     use crate::{
@@ -282,12 +318,13 @@ mod tests {
             user_name: String::from_str("scam").unwrap(),
             user_number: uuid::Uuid::new_v4().to_string(),
         };
-        sqlite_provider.add_user(&add_user_command).unwrap();
+        sqlite_provider.add_user(&add_user_command).await.unwrap();
         let user = sqlite_provider
             .get_user_by_number(add_user_command.user_number.as_str())
+            .await
             .unwrap();
 
-        sqlite_provider.delete_user_by_id(user.id).unwrap();
+        sqlite_provider.delete_user_by_id(user.id).await.unwrap();
     }
 
     #[tokio::test]
@@ -299,7 +336,7 @@ mod tests {
             user_number: String::from_str("88005553535").unwrap(),
         };
 
-        assert!(sqlite_provider.add_user(&add_user_command).is_err());
+        assert!(sqlite_provider.add_user(&add_user_command).await.is_err());
     }
 
     #[tokio::test]
@@ -310,14 +347,14 @@ mod tests {
             user_name: String::from_str("scam").unwrap(),
             user_number: uuid::Uuid::new_v4().to_string(),
         };
-        sqlite_provider.add_user(&add_user_command).unwrap();
+        sqlite_provider.add_user(&add_user_command).await.unwrap();
         let add_user_command = AddUserCommand {
             user_name: String::from_str("scamjr").unwrap(),
             user_number: uuid::Uuid::new_v4().to_string(),
         };
-        sqlite_provider.add_user(&add_user_command).unwrap();
+        sqlite_provider.add_user(&add_user_command).await.unwrap();
 
-        let users = sqlite_provider.get_users().unwrap();
+        let users = sqlite_provider.get_users().await.unwrap();
         assert!(users.len() > 0);
 
         fs::remove_file("./testbases/testbase_users.db3")
@@ -325,11 +362,11 @@ mod tests {
             .unwrap();
     }
 
-    #[test]
-    fn get_user_by_number_test() {
+    #[tokio::test]
+    async fn get_user_by_number_test() {
         let config = Configuration::new("./testbases/testbase_user.db3");
         let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
-        let user_res = sqlite_provider.get_user_by_number("88005553535");
+        let user_res = sqlite_provider.get_user_by_number("88005553535").await;
         match user_res {
             Ok(user) => {
                 assert!(user.name.eq("scam"));
@@ -340,21 +377,24 @@ mod tests {
         }
     }
 
-    #[test]
-    fn add_account_to_db() {
+    #[tokio::test]
+    async fn add_account_to_db() {
         let config = Configuration::new("./testbases/testbase_accounts.db3");
         let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
         let add_user_command = AddUserCommand {
             user_name: String::from_str("scam").unwrap(),
             user_number: uuid::Uuid::new_v4().to_string(),
         };
-        sqlite_provider.add_user(&add_user_command).unwrap();
+        sqlite_provider.add_user(&add_user_command).await.unwrap();
         let add_account_command = create_add_account_command(1, 50000.0);
-        sqlite_provider.add_account(&add_account_command).unwrap();
+        sqlite_provider
+            .add_account(&add_account_command)
+            .await
+            .unwrap();
     }
 
-    #[test]
-    fn delete_users_test() {
+    #[tokio::test]
+    async fn delete_users_test() {
         let config = Configuration::new("./testbases/testbase_user_delete.db3");
         let add_user_command = AddUserCommand {
             user_name: String::from_str("scam").unwrap(),
@@ -362,64 +402,75 @@ mod tests {
         };
         let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
 
-        sqlite_provider.add_user(&add_user_command).unwrap();
+        sqlite_provider.add_user(&add_user_command).await.unwrap();
         let user = sqlite_provider
             .get_user_by_number(add_user_command.user_number.as_str())
+            .await
             .unwrap();
 
         let add_user_command = AddUserCommand {
             user_name: String::from_str("scamer").unwrap(),
             user_number: uuid::Uuid::new_v4().to_string(),
         };
-        sqlite_provider.add_user(&add_user_command).unwrap();
+        sqlite_provider.add_user(&add_user_command).await.unwrap();
 
-        let users = sqlite_provider.get_users().unwrap();
+        let users = sqlite_provider.get_users().await.unwrap();
         assert!(users.len() > 0);
 
-        users.iter().for_each(|user| {
-            sqlite_provider.delete_user_by_id(user.id).unwrap();
-        });
-
-        let users = sqlite_provider.get_users().unwrap();
+        for user in users {
+            sqlite_provider.delete_user_by_id(user.id).await.unwrap();
+        }
+        let users = sqlite_provider.get_users().await.unwrap();
 
         assert!(users.len() == 0);
 
         std::fs::remove_file("./testbases/testbase_user_delete.db3").unwrap();
     }
 
-    #[test]
-    fn account_lifecircle_test() {
+    #[tokio::test]
+    async fn account_lifecircle_test() {
         let add_user_command = AddUserCommand {
             user_name: String::from_str("scam").unwrap(),
             user_number: uuid::Uuid::new_v4().to_string(),
         };
-        let sqlite_provider = configure_sql_with_user(&add_user_command);
+        let sqlite_provider = configure_sql_with_user(&add_user_command).await;
         let user = sqlite_provider
             .get_user_by_number(add_user_command.user_number.as_str())
+            .await
             .unwrap();
         let add_account_command = create_add_account_command(1, 50000.0);
-        sqlite_provider.add_account(&add_account_command).unwrap();
-        let account = sqlite_provider.search_account_by_user(&user).unwrap();
-        sqlite_provider.change_money(&account, 100000.0).unwrap();
-        let account = sqlite_provider.search_account_by_user(&user).unwrap();
+        sqlite_provider
+            .add_account(&add_account_command)
+            .await
+            .unwrap();
+        let account = sqlite_provider.search_account_by_user(&user).await.unwrap();
+        sqlite_provider
+            .change_money(&account, 100000.0)
+            .await
+            .unwrap();
+        let account = sqlite_provider.search_account_by_user(&user).await.unwrap();
         assert_eq!(account.money, 150000.0);
         assert_eq!(account.name, add_account_command.account_name);
-        sqlite_provider.delete_account(&account).unwrap();
+        sqlite_provider.delete_account(&account).await.unwrap();
     }
 
-    #[test]
-    fn transaction_execute_test() {
+    #[tokio::test]
+    async fn transaction_execute_test() {
         let add_user_command = AddUserCommand {
             user_name: String::from_str("scam").unwrap(),
             user_number: uuid::Uuid::new_v4().to_string(),
         };
-        let sqlite_provider = configure_sql_with_user(&add_user_command);
+        let sqlite_provider = configure_sql_with_user(&add_user_command).await;
         let user = sqlite_provider
             .get_user_by_number(add_user_command.user_number.as_str())
+            .await
             .unwrap();
         let add_account_command = create_add_account_command(1, 50000.0);
-        sqlite_provider.add_account(&add_account_command).unwrap();
-        let account = sqlite_provider.search_account_by_user(&user).unwrap();
+        sqlite_provider
+            .add_account(&add_account_command)
+            .await
+            .unwrap();
+        let account = sqlite_provider.search_account_by_user(&user).await.unwrap();
         sqlite_provider
             .execute_transaction(&MoneyTransaction {
                 description: "Test transcation".to_string(),
@@ -431,15 +482,16 @@ mod tests {
                 id: "".to_string(),
                 create_date: chrono::Utc::now().naive_utc(),
             })
+            .await
             .unwrap();
-        let account = sqlite_provider.search_account_by_user(&user).unwrap();
+        let account = sqlite_provider.search_account_by_user(&user).await.unwrap();
         assert_eq!(account.money, 250000.0);
     }
 
-    fn configure_sql_with_user(add_user_command: &AddUserCommand) -> SqliteProvider {
+    async fn configure_sql_with_user(add_user_command: &AddUserCommand) -> SqliteProvider {
         let config = Configuration::memory_base();
         let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
-        sqlite_provider.add_user(add_user_command).unwrap();
+        sqlite_provider.add_user(add_user_command).await.unwrap();
 
         sqlite_provider
     }
