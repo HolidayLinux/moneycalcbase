@@ -1,5 +1,5 @@
 pub struct AddAccountCommand {
-    user_id: i32,
-    account_name: String,
-    initial_balance: f32,
+    pub user_id: i32,
+    pub account_name: String,
+    pub initial_balance: f32,
 }

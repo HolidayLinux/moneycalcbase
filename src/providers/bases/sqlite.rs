@@ -1,4 +1,5 @@
 use crate::{
+    commands::accounts::addaccountcommand::AddAccountCommand,
     config::Configuration,
     models::{
         account::Account,
@@ -150,16 +151,19 @@ impl UserProvider for SqliteProvider {
 }
 
 impl AccountProvider for SqliteProvider {
-    fn add_account(&self, account: &Account) -> Result<(), Box<dyn std::error::Error>> {
+    fn add_account(
+        &self,
+        add_command: &AddAccountCommand,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let sql =
             "Insert into Accounts(Name, UserId, MoneyCount, CreationDate) Values (?1,?2,?3,?4);";
         self.connection.execute(
             sql,
             params![
-                account.name.clone(),
-                account.user_id,
-                account.money,
-                account.creation_date,
+                add_command.account_name,
+                add_command.user_id,
+                add_command.initial_balance,
+                chrono::Utc::now().naive_utc().date().to_string(),
             ],
         )?;
         Ok(())
@@ -228,6 +232,7 @@ mod tests {
     use tokio::fs;
 
     use crate::{
+        commands::accounts::addaccountcommand::AddAccountCommand,
         config::Configuration,
         models::{
             account::Account,
@@ -332,6 +337,21 @@ mod tests {
     }
 
     #[test]
+    fn add_account_to_db() {
+        let config = Configuration::new("./testbases/testbase_accounts.db3");
+        let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
+        let user = User::new(
+            1,
+            String::from_str("scam").unwrap(),
+            uuid::Uuid::new_v4().to_string(),
+            String::from_str("2025-10-10").unwrap(),
+        );
+        sqlite_provider.add_user(&user).unwrap();
+        let add_account_command = create_add_account_command(1, 50000.0);
+        sqlite_provider.add_account(&add_account_command).unwrap();
+    }
+
+    #[test]
     fn delete_users_test() {
         let config = Configuration::new("./testbases/testbase_user_delete.db3");
         let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
@@ -374,13 +394,13 @@ mod tests {
             String::from_str("2025-10-10").unwrap(),
         );
         let sqlite_provider = configure_sql_with_user(&user);
-        let account = Account::new(1, "Test".to_owned(), 50000.0);
-        sqlite_provider.add_account(&account).unwrap();
+        let add_account_command = create_add_account_command(1, 50000.0);
+        sqlite_provider.add_account(&add_account_command).unwrap();
         let account = sqlite_provider.search_account_by_user(&user).unwrap();
         sqlite_provider.change_money(&account, 100000.0).unwrap();
         let account = sqlite_provider.search_account_by_user(&user).unwrap();
         assert_eq!(account.money, 150000.0);
-        assert_eq!(account.name, "Test");
+        assert_eq!(account.name, add_account_command.account_name);
         sqlite_provider.delete_account(&account).unwrap();
     }
 
@@ -393,8 +413,9 @@ mod tests {
             String::from_str("2025-10-10").unwrap(),
         );
         let sqlite_provider = configure_sql_with_user(&user);
+        let add_account_command = create_add_account_command(1, 50000.0);
         let account = Account::new(1, "Test".to_owned(), 50000.0);
-        sqlite_provider.add_account(&account).unwrap();
+        sqlite_provider.add_account(&add_account_command).unwrap();
         let account = sqlite_provider.search_account_by_user(&user).unwrap();
         sqlite_provider
             .execute_transaction(&MoneyTransaction {
@@ -423,5 +444,13 @@ mod tests {
     async fn check_exist(path: &str) -> bool {
         let meta = fs::metadata(path).await.ok();
         if let Some(_) = meta { true } else { false }
+    }
+
+    fn create_add_account_command(user_id: i32, initial_balance: f32) -> AddAccountCommand {
+        AddAccountCommand {
+            user_id,
+            account_name: String::from_str("TEST ACCOUNT").unwrap(),
+            initial_balance,
+        }
     }
 }

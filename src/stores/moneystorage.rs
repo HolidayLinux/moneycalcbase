@@ -24,5 +24,7 @@ impl<TU: UserProvider, TA: AccountProvider, TW: TransactionWorker> MoneyStorage<
         }
     }
 
-    pub fn create_user(number: &str, name: &str) -> Result<User, Box<dyn std::error::Error>> {}
+    pub fn create_user(number: &str, name: &str) -> Result<User, Box<dyn std::error::Error>> {
+        todo!()
+    }
 }

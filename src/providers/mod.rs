@@ -1,6 +1,9 @@
 use std::error;
 
-use crate::models::{account::Account, moneytransaction::MoneyTransaction, user::User};
+use crate::{
+    commands::accounts::addaccountcommand::AddAccountCommand,
+    models::{account::Account, moneytransaction::MoneyTransaction, user::User},
+};
 
 pub mod bases;
 
@@ -23,8 +26,8 @@ pub trait AccountProvider {
 
     fn add_account(
         &self,
-        add_account_command: AddAccountCommand,
-    ) -> Result<Account, Box<dyn error::Error>>;
+        add_account_command: &AddAccountCommand,
+    ) -> Result<(), Box<dyn error::Error>>;
 
     fn delete_account(&self, account: &Account) -> Result<(), Box<dyn error::Error>>;
 

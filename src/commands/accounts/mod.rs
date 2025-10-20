@@ -1,1 +1,1 @@
-mod addaccountcommand;
+pub mod addaccountcommand;
