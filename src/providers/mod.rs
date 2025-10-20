@@ -1,7 +1,9 @@
 use std::error;
 
 use crate::{
-    commands::accounts::addaccountcommand::AddAccountCommand,
+    commands::{
+        accounts::addaccountcommand::AddAccountCommand, users::addusercommand::AddUserCommand,
+    },
     models::{account::Account, moneytransaction::MoneyTransaction, user::User},
 };
 
@@ -10,7 +12,7 @@ pub mod bases;
 /// User provider interface.
 /// Get functions for get or add users.
 pub trait UserProvider {
-    fn add_user(&self, user: &User) -> Result<(), Box<dyn error::Error>>;
+    fn add_user(&self, add_user_command: &AddUserCommand) -> Result<(), Box<dyn error::Error>>;
 
     fn get_users(&self) -> Result<Vec<User>, Box<dyn error::Error>>;
 

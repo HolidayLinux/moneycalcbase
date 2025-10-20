@@ -1,5 +1,7 @@
 use crate::{
-    commands::accounts::addaccountcommand::AddAccountCommand,
+    commands::{
+        accounts::addaccountcommand::AddAccountCommand, users::addusercommand::AddUserCommand,
+    },
     config::Configuration,
     models::{
         account::Account,
@@ -102,11 +104,18 @@ impl TransactionWorker for SqliteProvider {
 }
 
 impl UserProvider for SqliteProvider {
-    fn add_user(&self, user: &User) -> Result<(), Box<dyn std::error::Error>> {
+    fn add_user(
+        &self,
+        add_user_command: &AddUserCommand,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let sql = "insert into Users(Name, Number, CreationDate) values (?1,?2, ?3);";
         self.connection.execute(
             sql,
-            params![user.name.clone(), user.number.clone(), user.creation_date,],
+            params![
+                add_user_command.user_name,
+                add_user_command.user_number,
+                chrono::Utc::now().naive_utc().date(),
+            ],
         )?;
         Ok(())
     }
@@ -232,10 +241,11 @@ mod tests {
     use tokio::fs;
 
     use crate::{
-        commands::accounts::addaccountcommand::AddAccountCommand,
+        commands::{
+            accounts::addaccountcommand::AddAccountCommand, users::addusercommand::AddUserCommand,
+        },
         config::Configuration,
         models::{
-            account::Account,
             moneytransaction::{MoneyTransaction, PaymentType},
             user::User,
         },
@@ -268,13 +278,14 @@ mod tests {
     async fn add_user_test() {
         let config = Configuration::memory_base();
         let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
-        let user = User::new(
-            1,
-            String::from_str("scam").unwrap(),
-            uuid::Uuid::new_v4().to_string(),
-            String::from_str("2025-10-10").unwrap(),
-        );
-        sqlite_provider.add_user(&user).unwrap();
+        let add_user_command = AddUserCommand {
+            user_name: String::from_str("scam").unwrap(),
+            user_number: uuid::Uuid::new_v4().to_string(),
+        };
+        sqlite_provider.add_user(&add_user_command).unwrap();
+        let user = sqlite_provider
+            .get_user_by_number(add_user_command.user_number.as_str())
+            .unwrap();
 
         sqlite_provider.delete_user_by_id(user.id).unwrap();
     }
@@ -283,35 +294,28 @@ mod tests {
     async fn add_user_notunique_test() {
         let config = Configuration::new("./testbases/testbase_user.db3");
         let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
-        let user = User::new(
-            1,
-            String::from_str("scam").unwrap(),
-            String::from_str("88005553535").unwrap(),
-            String::from_str("2025-10-10").unwrap(),
-        );
+        let add_user_command = AddUserCommand {
+            user_name: String::from_str("scam").unwrap(),
+            user_number: String::from_str("88005553535").unwrap(),
+        };
 
-        assert!(sqlite_provider.add_user(&user).is_err());
+        assert!(sqlite_provider.add_user(&add_user_command).is_err());
     }
 
     #[tokio::test]
     async fn get_users_test() {
         let config = Configuration::new("./testbases/testbase_users.db3");
         let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
-
-        let user = User::new(
-            1,
-            String::from_str("scam").unwrap(),
-            uuid::Uuid::new_v4().to_string(),
-            String::from_str("2025-10-10").unwrap(),
-        );
-        sqlite_provider.add_user(&user).unwrap();
-        let user = User::new(
-            2,
-            String::from_str("scam").unwrap(),
-            uuid::Uuid::new_v4().to_string(),
-            String::from_str("2025-10-10").unwrap(),
-        );
-        sqlite_provider.add_user(&user).unwrap();
+        let add_user_command = AddUserCommand {
+            user_name: String::from_str("scam").unwrap(),
+            user_number: uuid::Uuid::new_v4().to_string(),
+        };
+        sqlite_provider.add_user(&add_user_command).unwrap();
+        let add_user_command = AddUserCommand {
+            user_name: String::from_str("scamjr").unwrap(),
+            user_number: uuid::Uuid::new_v4().to_string(),
+        };
+        sqlite_provider.add_user(&add_user_command).unwrap();
 
         let users = sqlite_provider.get_users().unwrap();
         assert!(users.len() > 0);
@@ -340,13 +344,11 @@ mod tests {
     fn add_account_to_db() {
         let config = Configuration::new("./testbases/testbase_accounts.db3");
         let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
-        let user = User::new(
-            1,
-            String::from_str("scam").unwrap(),
-            uuid::Uuid::new_v4().to_string(),
-            String::from_str("2025-10-10").unwrap(),
-        );
-        sqlite_provider.add_user(&user).unwrap();
+        let add_user_command = AddUserCommand {
+            user_name: String::from_str("scam").unwrap(),
+            user_number: uuid::Uuid::new_v4().to_string(),
+        };
+        sqlite_provider.add_user(&add_user_command).unwrap();
         let add_account_command = create_add_account_command(1, 50000.0);
         sqlite_provider.add_account(&add_account_command).unwrap();
     }
@@ -354,22 +356,22 @@ mod tests {
     #[test]
     fn delete_users_test() {
         let config = Configuration::new("./testbases/testbase_user_delete.db3");
+        let add_user_command = AddUserCommand {
+            user_name: String::from_str("scam").unwrap(),
+            user_number: uuid::Uuid::new_v4().to_string(),
+        };
         let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
 
-        let user = User::new(
-            1,
-            String::from_str("scam").unwrap(),
-            uuid::Uuid::new_v4().to_string(),
-            String::from_str("2025-10-10").unwrap(),
-        );
-        sqlite_provider.add_user(&user).unwrap();
-        let user = User::new(
-            2,
-            String::from_str("scam").unwrap(),
-            uuid::Uuid::new_v4().to_string(),
-            String::from_str("2025-10-10").unwrap(),
-        );
-        sqlite_provider.add_user(&user).unwrap();
+        sqlite_provider.add_user(&add_user_command).unwrap();
+        let user = sqlite_provider
+            .get_user_by_number(add_user_command.user_number.as_str())
+            .unwrap();
+
+        let add_user_command = AddUserCommand {
+            user_name: String::from_str("scamer").unwrap(),
+            user_number: uuid::Uuid::new_v4().to_string(),
+        };
+        sqlite_provider.add_user(&add_user_command).unwrap();
 
         let users = sqlite_provider.get_users().unwrap();
         assert!(users.len() > 0);
@@ -387,13 +389,14 @@ mod tests {
 
     #[test]
     fn account_lifecircle_test() {
-        let user = User::new(
-            1,
-            String::from_str("scam").unwrap(),
-            uuid::Uuid::new_v4().to_string(),
-            String::from_str("2025-10-10").unwrap(),
-        );
-        let sqlite_provider = configure_sql_with_user(&user);
+        let add_user_command = AddUserCommand {
+            user_name: String::from_str("scam").unwrap(),
+            user_number: uuid::Uuid::new_v4().to_string(),
+        };
+        let sqlite_provider = configure_sql_with_user(&add_user_command);
+        let user = sqlite_provider
+            .get_user_by_number(add_user_command.user_number.as_str())
+            .unwrap();
         let add_account_command = create_add_account_command(1, 50000.0);
         sqlite_provider.add_account(&add_account_command).unwrap();
         let account = sqlite_provider.search_account_by_user(&user).unwrap();
@@ -406,15 +409,15 @@ mod tests {
 
     #[test]
     fn transaction_execute_test() {
-        let user = User::new(
-            1,
-            String::from_str("scam").unwrap(),
-            uuid::Uuid::new_v4().to_string(),
-            String::from_str("2025-10-10").unwrap(),
-        );
-        let sqlite_provider = configure_sql_with_user(&user);
+        let add_user_command = AddUserCommand {
+            user_name: String::from_str("scam").unwrap(),
+            user_number: uuid::Uuid::new_v4().to_string(),
+        };
+        let sqlite_provider = configure_sql_with_user(&add_user_command);
+        let user = sqlite_provider
+            .get_user_by_number(add_user_command.user_number.as_str())
+            .unwrap();
         let add_account_command = create_add_account_command(1, 50000.0);
-        let account = Account::new(1, "Test".to_owned(), 50000.0);
         sqlite_provider.add_account(&add_account_command).unwrap();
         let account = sqlite_provider.search_account_by_user(&user).unwrap();
         sqlite_provider
@@ -433,10 +436,10 @@ mod tests {
         assert_eq!(account.money, 250000.0);
     }
 
-    fn configure_sql_with_user(user: &User) -> SqliteProvider {
+    fn configure_sql_with_user(add_user_command: &AddUserCommand) -> SqliteProvider {
         let config = Configuration::memory_base();
         let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
-        sqlite_provider.add_user(user).unwrap();
+        sqlite_provider.add_user(add_user_command).unwrap();
 
         sqlite_provider
     }
