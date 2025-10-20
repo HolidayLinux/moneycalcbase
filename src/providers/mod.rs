@@ -9,6 +9,9 @@ use std::error;
 
 pub mod bases;
 
+#[async_trait]
+pub trait DataProvider: UserProvider + AccountProvider + TransactionWorker {}
+
 /// User provider interface.
 /// Get functions for get or add users.
 #[async_trait]

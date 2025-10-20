@@ -1,10 +1,11 @@
+use core::error;
 use std::sync::{Arc, Mutex};
 
 use crate::{
     commands::{
         accounts::addaccountcommand::AddAccountCommand, users::addusercommand::AddUserCommand,
     },
-    config::Configuration,
+    config::SqliteConfiguration,
     models::{
         account::Account,
         moneytransaction::{MoneyTransaction, PaymentType},
@@ -32,7 +33,7 @@ impl ToSql for PaymentType {
 #[derive(Debug)]
 pub struct SqliteProvider {
     connection: Arc<Mutex<Connection>>,
-    config: Configuration,
+    config: SqliteConfiguration,
 }
 
 impl Clone for SqliteProvider {
@@ -52,7 +53,10 @@ impl Clone for SqliteProvider {
 }
 
 impl SqliteProvider {
-    pub fn new(config: &Configuration, apply_migrations: bool) -> Result<Self, Error> {
+    pub fn new(
+        config: &SqliteConfiguration,
+        apply_migrations: bool,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let connect: Connection;
         if config.memory_base {
             connect = Connection::open_in_memory()?;
@@ -270,21 +274,15 @@ impl AccountProvider for SqliteProvider {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        str::FromStr,
-        sync::{Arc, Mutex},
-    };
+    use std::str::FromStr;
     use tokio::fs;
 
     use crate::{
         commands::{
             accounts::addaccountcommand::AddAccountCommand, users::addusercommand::AddUserCommand,
         },
-        config::Configuration,
-        models::{
-            moneytransaction::{MoneyTransaction, PaymentType},
-            user::User,
-        },
+        config::SqliteConfiguration,
+        models::moneytransaction::{MoneyTransaction, PaymentType},
         providers::{
             AccountProvider, TransactionWorker, UserProvider, bases::sqlite::SqliteProvider,
         },
@@ -292,27 +290,27 @@ mod tests {
 
     #[tokio::test]
     async fn create_test_file_base() {
-        let config = Configuration::new("./testbases/testbase.db3");
+        let config = SqliteConfiguration::new("./testbases/testbase.db3");
         let _ = SqliteProvider::new(&config, false);
         assert!(check_exist(config.connection_string.as_str()).await);
     }
 
     #[test]
     fn create_test_memory_base() {
-        let config = Configuration::memory_base();
+        let config = SqliteConfiguration::memory_base();
         let _ = SqliteProvider::new(&config, false).unwrap();
     }
 
     #[tokio::test]
     async fn add_migration_test() {
-        let config = Configuration::new("./testbases/testbase_mig.db3");
+        let config = SqliteConfiguration::new("./testbases/testbase_mig.db3");
         let _ = SqliteProvider::new(&config, true);
         assert!(check_exist(config.connection_string.as_str()).await);
     }
 
     #[tokio::test]
     async fn add_user_test() {
-        let config = Configuration::memory_base();
+        let config = SqliteConfiguration::memory_base();
         let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
         let add_user_command = AddUserCommand {
             user_name: String::from_str("scam").unwrap(),
@@ -329,7 +327,7 @@ mod tests {
 
     #[tokio::test]
     async fn add_user_notunique_test() {
-        let config = Configuration::new("./testbases/testbase_user.db3");
+        let config = SqliteConfiguration::new("./testbases/testbase_user.db3");
         let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
         let add_user_command = AddUserCommand {
             user_name: String::from_str("scam").unwrap(),
@@ -341,7 +339,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_users_test() {
-        let config = Configuration::new("./testbases/testbase_users.db3");
+        let config = SqliteConfiguration::new("./testbases/testbase_users.db3");
         let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
         let add_user_command = AddUserCommand {
             user_name: String::from_str("scam").unwrap(),
@@ -364,7 +362,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_user_by_number_test() {
-        let config = Configuration::new("./testbases/testbase_user.db3");
+        let config = SqliteConfiguration::new("./testbases/testbase_user.db3");
         let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
         let user_res = sqlite_provider.get_user_by_number("88005553535").await;
         match user_res {
@@ -379,7 +377,7 @@ mod tests {
 
     #[tokio::test]
     async fn add_account_to_db() {
-        let config = Configuration::new("./testbases/testbase_accounts.db3");
+        let config = SqliteConfiguration::new("./testbases/testbase_accounts.db3");
         let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
         let add_user_command = AddUserCommand {
             user_name: String::from_str("scam").unwrap(),
@@ -395,7 +393,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_users_test() {
-        let config = Configuration::new("./testbases/testbase_user_delete.db3");
+        let config = SqliteConfiguration::new("./testbases/testbase_user_delete.db3");
         let add_user_command = AddUserCommand {
             user_name: String::from_str("scam").unwrap(),
             user_number: uuid::Uuid::new_v4().to_string(),
@@ -489,7 +487,7 @@ mod tests {
     }
 
     async fn configure_sql_with_user(add_user_command: &AddUserCommand) -> SqliteProvider {
-        let config = Configuration::memory_base();
+        let config = SqliteConfiguration::memory_base();
         let sqlite_provider = SqliteProvider::new(&config, true).unwrap();
         sqlite_provider.add_user(add_user_command).await.unwrap();
 
